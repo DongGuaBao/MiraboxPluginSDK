@@ -60,13 +60,4 @@ export default defineConfig([
         target: "es2020",
         outDir: "dist/web/ui",
     },
-    {
-        entry: ["src/cef/index.ts"],
-        format: ["esm"],
-        dts: true,
-        sourcemap: true,
-        minify: false,
-        target: "es2020",
-        outDir: "dist/cef",
-    },
 ]);

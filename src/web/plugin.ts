@@ -134,12 +134,12 @@ export class Plugin extends BasePlugin {
             if ((this as any)[data.event](data)) return;
         }
         if (data.event === "didReceiveGlobalSettings") {
-            this.globalSettings = data.payload as JsonObject;
+            this.globalSettings = (data.payload?.settings ?? data.payload ?? {}) as JsonObject;
         }
         if (data.event == "deviceDidConnect") {
             this.devices[(data as any).device] = true;
         }
-        if (data.event == "deviceDidConnectDisconnect") {
+        if (data.event == "deviceDidDisconnect") {
             this.devices[(data as any).device] = false;
         }
         this.dispatchAction(data);

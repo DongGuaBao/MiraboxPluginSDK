@@ -57,11 +57,14 @@ import "../types";
 import { RpcChannel } from "../core/rpc";
 import { detectHostEnvironment, type HostEnvironment } from "../core/environment";
 import { ensureSDSocketPolyfill } from "./polyfill";
-import { createApp, watch, reactive, type Reactive } from "vue";
+import { createApp, onMounted, watch, reactive, type Reactive } from "vue";
 
 export { detectHostEnvironment, isCraft, isStreamDock } from "../core/environment";
 export type { HostEnvironment, HostKind } from "../core/environment";
-export { QtWebChannelStore, createCraftQtChannel } from "./qt-web-channel";
+export { QtWebChannelStore, createCraftQtChannel, getCraftQtChannel, hasCraftQtChannel, resetCraftQtChannel, setCraftQtTransportProbe } from "./qt-web-channel";
+export type { CraftFileSelection } from "./qt-web-channel";
+export { useToast, useToastState, copyText } from "./toast";
+export type { ToastItem, ToastVariant } from "./toast";
 
 /** 子窗口的可序列化状态，不包含原始 Window 句柄。 */
 export interface SubWindowInfo {
@@ -74,6 +77,12 @@ interface SubWindowEntry {
     info: SubWindowInfo;
     window: Window | null;
 }
+
+type PropertyChildEvent =
+    | "willAppear"
+    | "didReceiveSettings"
+    | "didReceiveGlobalSettings"
+    | "sendToPropertyInspector";
 
 interface PropertyInterface {
     /** 运行时配置 */
@@ -111,7 +120,10 @@ interface PropertyInterface {
     /** 当前及历史子窗口状态。 */
     subWindows: SubWindowInfo[];
 }
-type ExtensibleProperty = PropertyInterface & Record<string, unknown>;
+type ExtensibleProperty<TSettings extends JsonObject = JsonObject, TGlobalSettings extends JsonObject = JsonObject> = Omit<PropertyInterface, "settings" | "globalSettings"> & {
+    settings: TSettings;
+    globalSettings: TGlobalSettings;
+} & Record<string, unknown>;
 export class Property {
     /** 全局设置缓存 */
     private getGlobalSettingsFlag: boolean = true;
@@ -141,6 +153,7 @@ export class Property {
     private pluginProxies = new Map<number | undefined, any>();
     private subWindowEntries = new Map<string, SubWindowEntry>();
     private subWindowIdSequence = 0;
+    private lastWillAppearEvent?: StreamDockEvents.WillAppear;
     private static childReactiveProperty?: Reactive<ExtensibleProperty>;
     private static childSyncingFromParent = false;
     constructor() {}
@@ -222,24 +235,55 @@ export class Property {
     static getI18n(): any {
         return window.i18n;
     }
-    static getReactiveInstance(): Reactive<ExtensibleProperty> {
+    static getReactiveInstance<TSettings extends JsonObject = JsonObject, TGlobalSettings extends JsonObject = JsonObject>(): Reactive<ExtensibleProperty<TSettings, TGlobalSettings>> {
         if (window.opener != null) {
-            if (this.childReactiveProperty) return this.childReactiveProperty;
+            if (this.childReactiveProperty) {
+                return this.childReactiveProperty as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
+            }
 
-            const parentReactive = window.opener.PropertyClass.getReactiveInstance() as ExtensibleProperty;
+            const parentReactive = window.opener.PropertyClass.getReactiveInstance() as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
             const currentSubWindowId = window.currentWindowsId;
             const clone = <T>(value: T): T => {
                 // settings/globalSettings 按 SDK 协议必须是 JSON；JSON 快照也能安全
                 // 穿过不同窗口、不同 Vue runtime 创建的 Reactive Proxy。
                 return JSON.parse(JSON.stringify(value)) as T;
             };
-            const local = reactive({
+            const defaultChildHandlers: Record<PropertyChildEvent, (data: any) => void> = {
+                willAppear: () => {},
+                didReceiveSettings: () => {},
+                didReceiveGlobalSettings: () => {},
+                sendToPropertyInspector: () => {},
+            };
+            let childWillAppear = defaultChildHandlers.willAppear;
+            let childMountScheduled = false;
+            const localSource: ExtensibleProperty = {
                 ...parentReactive,
                 settings: clone(parentReactive.settings ?? {}),
                 globalSettings: clone(parentReactive.globalSettings ?? {}),
                 currentSubWindowId,
                 getCurrentWindowsId: () => currentSubWindowId,
-            }) as Reactive<ExtensibleProperty>;
+                // 子窗口必须有自己的回调槽，不能从父 Property 副制回调，
+                // 否则子窗口组件尚未挂载时会错调父窗口处理函数。
+                ...defaultChildHandlers,
+            };
+            Object.defineProperty(localSource, "willAppear", {
+                configurable: true,
+                enumerable: true,
+                get: () => childWillAppear,
+                set: (handler: (data: StreamDockEvents.WillAppear) => void) => {
+                    childWillAppear = handler;
+                    if (childMountScheduled || handler === defaultChildHandlers.willAppear) return;
+                    childMountScheduled = true;
+                    // setter 在业务子组件 setup() 期间执行，所以此处的
+                    // onMounted 绑定的是真正的异步子组件，而不是外层壳。
+                    onMounted(() => {
+                        const appearance = window.opener?.PropertyClass.getInstance()
+                            .attachSubWindowProperty(currentSubWindowId, window);
+                        if (appearance) handler(appearance);
+                    });
+                },
+            });
+            const local = reactive(localSource) as Reactive<ExtensibleProperty>;
             this.childReactiveProperty = local;
 
             window.__streamDockSyncProperty = (state) => {
@@ -253,6 +297,11 @@ export class Property {
                 } finally {
                     this.childSyncingFromParent = false;
                 }
+            };
+
+            window.__streamDockDispatchPropertyEvent = (event: PropertyChildEvent, data: any) => {
+                const handler = local[event] as ((value: any) => void) | undefined;
+                if (handler && handler !== defaultChildHandlers[event]) handler(data);
             };
 
             watch(
@@ -271,7 +320,7 @@ export class Property {
                 },
                 { deep: true, flush: "sync" },
             );
-            return local;
+            return local as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
         }
         const property = this.getInstance();
         if (!property.reactiveProperty) {
@@ -305,7 +354,7 @@ export class Property {
                 subWindows: [],
             });
         }
-        return property.reactiveProperty;
+        return property.reactiveProperty as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
     }
     /**
      * 建立 WebSocket 连接并注册 Property Inspector 到 Stream Dock。
@@ -368,9 +417,15 @@ export class Property {
     /**
      * 打开并记录一个子窗口。
      *
+     * **仅 StreamDock 宿主支持。** Craft(`5.*`)不支持 PI 子窗口，调用时会输出
+     * 警告；请改用同一 PI 内的分区渲染，或用 `property.isStreamDock` 做能力分支。
+     *
      * @returns 包含唯一 ID 和当前状态的子窗口信息。
      */
     openSubWindows(name: string, width: number, height: number, left: number | null = null, top: number | null = null): SubWindowInfo {
+        if (this.isCraft) {
+            console.warn("[streamdock-sdk] Craft 宿主不支持 PI 子窗口，openSubWindows 可能无效。请用 property.isStreamDock 做能力分支。");
+        }
         const ratio = window.devicePixelRatio || 1;
         const popupWidth = width * ratio;
         const popupHeight = height * ratio;
@@ -379,11 +434,6 @@ export class Property {
         const popupLeft = left ?? (screenWidth - popupWidth) / 2;
         const popupTop = top ?? (screenHeight - popupHeight) / 2;
         const id = this.createSubWindowId();
-        const childWindow = window.open(
-            `./index.html?name=${encodeURIComponent(name)}&windowId=${encodeURIComponent(id)}`,
-            "_blank",
-            `width=${popupWidth},height=${popupHeight},top=${popupTop},left=${popupLeft}`,
-        );
         const now = Date.now();
         const info: SubWindowInfo = {
             id,
@@ -391,7 +441,16 @@ export class Property {
             openedAt: now,
         };
 
-        this.subWindowEntries.set(id, { info, window: childWindow });
+        // StreamDock 的 window.open 可能在返回前就同步挂载子窗口。
+        // 先登记占位项，避免子窗口初始化/RPC 引发的插件消息找不到 ID。
+        this.subWindowEntries.set(id, { info, window: null });
+        const childWindow = window.open(
+            `./index.html?name=${encodeURIComponent(name)}&windowId=${encodeURIComponent(id)}`,
+            "_blank",
+            `width=${popupWidth},height=${popupHeight},top=${popupTop},left=${popupLeft}`,
+        );
+        const entry = this.subWindowEntries.get(id);
+        if (entry && !entry.window) entry.window = childWindow;
         return { ...info };
     }
     /**
@@ -454,6 +513,7 @@ export class Property {
             this.syncSubWindows();
             this.didReceiveGlobalSettings?.(data);
             this.reactiveProperty.didReceiveGlobalSettings(data);
+            this.dispatchToSubWindows("didReceiveGlobalSettings", data);
         }
         if (data.event === "didReceiveSettings") {
             if (this.hasDidReceiveSettings) {
@@ -462,11 +522,14 @@ export class Property {
                 this.syncSubWindows();
                 this.didReceiveSettings?.(data);
                 this.reactiveProperty.didReceiveSettings(data);
+                this.dispatchToSubWindows("didReceiveSettings", data);
                 this.preventWatch = false;
             } else {
                 this.hasDidReceiveSettings = true;
+                this.lastWillAppearEvent = data;
                 this.willAppear?.(data);
                 this.reactiveProperty.willAppear(data);
+                this.dispatchToSubWindows("willAppear", data);
             }
         }
         if (data.event === "sendToPropertyInspector") {
@@ -496,6 +559,21 @@ export class Property {
         this.reactiveProperty.settings = data;
     }
 
+    /**
+     * 子窗口 Vue 完成 mount 后注册自己的 Property 副本。
+     * 子窗口通常在主 PI willAppear 之后才打开，所以需要补发最近一次
+     * willAppear，否则子窗口中依赖 RPC/会话的初始化永远不会执行。
+     */
+    attachSubWindowProperty(id: string, childWindow?: Window): StreamDockEvents.WillAppear | undefined {
+        const entry = this.subWindowEntries.get(id);
+        if (!entry) return undefined;
+        // window.open 还没返回时，子窗口使用自身 window 反向完成注册。
+        if (childWindow) entry.window = childWindow;
+        if (!entry.window || entry.window.closed) return undefined;
+        this.syncSubWindows();
+        return this.lastWillAppearEvent;
+    }
+
     /** 将父窗口状态显式推送到每个子窗口自己的 Vue reactive 镜像。 */
     private syncSubWindows() {
         const state = {
@@ -506,12 +584,29 @@ export class Property {
             isStreamDock: this.reactiveProperty.isStreamDock,
         };
         for (const [id, entry] of this.subWindowEntries) {
-            if (!entry.window || entry.window.closed) {
+            // null 表示 window.open 尚未返回/子窗口尚未反向注册，
+            // 这是正常的短暂状态，不能当成已关闭而删除。
+            if (!entry.window) continue;
+            if (entry.window.closed) {
                 this.subWindowEntries.delete(id);
                 continue;
             }
             try {
                 entry.window.__streamDockSyncProperty?.(state);
+            } catch {}
+        }
+    }
+
+    /** 把主 PI 收到的事件分发给每个子窗口独立的 Property 副本。 */
+    private dispatchToSubWindows(event: PropertyChildEvent, data: any) {
+        for (const [id, entry] of this.subWindowEntries) {
+            if (!entry.window) continue;
+            if (entry.window.closed) {
+                this.subWindowEntries.delete(id);
+                continue;
+            }
+            try {
+                entry.window.__streamDockDispatchPropertyEvent?.(event, data);
             } catch {}
         }
     }
@@ -567,6 +662,7 @@ export class Property {
         if (this._rpc.handleIncoming(payload, this)) return;
         this.reactiveProperty.sendToPropertyInspector(data);
         this.sendToPropertyInspector?.(data);
+        this.dispatchToSubWindows("sendToPropertyInspector", data);
     }
 
     /**

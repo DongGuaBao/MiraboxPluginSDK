@@ -1,6 +1,6 @@
 {
     "name": "@mirabox/streamdock-sdk",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "type": "module",
     "description": "StreamDock plugin development SDK",
     "author": "MiraBox",
@@ -31,10 +31,6 @@
             "types": "./dist/web/ui/index.d.mts",
             "import": "./dist/web/ui/index.mjs"
         },
-        "./cef": {
-            "types": "./dist/cef/index.d.mts",
-            "import": "./dist/cef/index.mjs"
-        },
         "./types": {
             "types": "./dist/types.d.mts"
         }
@@ -48,13 +44,15 @@
         "ws": "^8.21.0"
     },
     "devDependencies": {
-        "@types/node": "^26.1.1",
+        "@types/node": "^26.2.0",
         "@types/ws": "^8.18.1",
-        "tsdown": "^0.22.12",
+        "tsdown": "^0.22.14",
         "typescript": "^7.0.2"
     },
     "scripts": {
-        "build": "tsdown",
+        "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+        "build": "npm run typecheck && tsdown",
+        "check": "npm run build",
         "prepublishOnly": "npm run build",
         "prepare": "npm run build"
     }

@@ -22,8 +22,8 @@ function readVersion(source: HostVersionSource): string {
 export function detectHostEnvironment(source: HostVersionSource): HostEnvironment {
     const version = readVersion(source);
     const match = /^(\d+)/.exec(version);
-    const majorVersion = match ? Number(match[1]) : null;
-    const kind: HostKind = majorVersion === 3 ? "streamdock" : majorVersion === 5 ? "craft" : "unknown";
+    const majorVersion = match ? Number(match[1]) : 3;
+    const kind: HostKind = majorVersion <= 4 ? "streamdock" : "craft";
     return {
         kind,
         version,

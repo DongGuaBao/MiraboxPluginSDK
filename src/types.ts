@@ -15,7 +15,7 @@ declare global {
     // ============ 基础 JSON 类型 ============
 
     /** JSON 兼容的值类型：字符串、数字、布尔、null、嵌套对象或数组 */
-    type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+    type JsonValue = string | number | boolean | JsonObject | JsonValue[];
 
     /** JSON 兼容的对象类型，键为字符串，值为 {@link JsonValue} */
     type JsonObject = {
@@ -88,7 +88,7 @@ declare global {
         argv: StreamDock.Argv;
 
         /** 由 polyfill 注入，连接 Stream Dock WebSocket 的入口函数 */
-        connectSDSocket(arg1: any, arg2: any, arg3: any, arg4: any): void;
+        connectSDSocket(port: string, uuid: string, registerEvent: string, info: string, actionInfo?: string): void | Promise<void>;
 
         /** Web 端延迟启动 Plugin 的函数，由 polyfill 赋值 */
         startPlugin(): Promise<void>;
@@ -106,20 +106,19 @@ declare global {
         fx: any;
 
         /** 兼容 MiraBox 旧版命名 */
-        connectMiraBoxSDSocket(): void;
+        connectMiraBoxSDSocket(port: string, uuid: string, registerEvent: string, info: string, actionInfo?: string): void | Promise<void>;
 
         /** 兼容旧版命名 */
-        connectSocket(): void;
+        connectSocket(port: string, uuid: string, registerEvent: string, info: string, actionInfo?: string): void | Promise<void>;
         currentActionName: string | null;
         currentWindowsId: string;
         /** SDK 内部：父 Property Inspector 向子窗口同步响应式状态。 */
-        __streamDockSyncProperty?: (state: {
-            settings: JsonObject;
-            globalSettings: JsonObject;
-            environment: unknown;
-            isCraft: boolean;
-            isStreamDock: boolean;
-        }) => void;
+        __streamDockSyncProperty?: (state: { settings: JsonObject; globalSettings: JsonObject; environment: unknown; isCraft: boolean; isStreamDock: boolean }) => void;
+        /** SDK 内部：父 Property Inspector 向子窗口自己的 Property 副本分发生命周期和插件消息。 */
+        __streamDockDispatchPropertyEvent?: (
+            event: "willAppear" | "didReceiveSettings" | "didReceiveGlobalSettings" | "sendToPropertyInspector",
+            data: any,
+        ) => void;
         /**
          * Stream Dock / Elgato 通用入口函数。
          * 对于 Property Inspector：接收 5 个参数（最后一个是 inActionInfo）。

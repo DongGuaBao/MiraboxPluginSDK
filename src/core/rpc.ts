@@ -9,6 +9,7 @@
  * - Property Inspector 端: `property.callPlugin('method', ...args)` 或 `property.action.method(...args)`
  */
 export class RpcChannel {
+    static readonly DEFAULT_CALL_TIMEOUT = 10_000;
     private _pendingCalls = new Map<
         string,
         {
@@ -73,7 +74,7 @@ export class RpcChannel {
      * @returns Promise，resolve 为方法的返回值
      */
     call(method: string, ...args: any[]): Promise<any> {
-        return this.callWithTimeout(method, undefined, args);
+        return this.callWithTimeout(method, RpcChannel.DEFAULT_CALL_TIMEOUT, args);
     }
 
     private callWithTimeout(method: string, timeout: number | undefined, args: any[]): Promise<any> {

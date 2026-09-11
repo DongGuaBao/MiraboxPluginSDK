@@ -38,6 +38,16 @@ import path from "path";
 
 export { Action, log };
 
+function parseHostJson<T>(raw: string, label: string): T {
+    const value = raw.trim();
+    const normalized = value.startsWith("'") && value.endsWith("'") ? value.slice(1, -1) : value;
+    try {
+        return JSON.parse(normalized) as T;
+    } catch (error) {
+        throw new Error(`Invalid ${label} JSON in plugin startup arguments`);
+    }
+}
+
 function summarizePayload(payload: any) {
     const settings = payload?.settings ?? payload ?? {};
     const clientId = typeof settings?.clientId === "string" ? settings.clientId : "";
@@ -76,7 +86,7 @@ export class Plugin extends BasePlugin {
      */
     static async startPlugin() {
         this.hasInit = true;
-        const application = JSON.parse(process.argv[9].replaceAll("'", '"')) as StreamDock.ApplicationInfo;
+        const application = parseHostJson<StreamDock.ApplicationInfo>(process.argv[9], "application info");
         const instance = this.getInstance();
         instance.setHostInfo(application);
 
@@ -84,7 +94,7 @@ export class Plugin extends BasePlugin {
             global.language = application.application.language;
             global.i18n = JSON.parse(fs.readFileSync(path.join(process.cwd(), `language/${language}.json`)).toString());
         } else {
-            const pluginTemp = process.argv.length >= 12 ? JSON.parse(process.argv[11].replaceAll("'", '"')) : null;
+            const pluginTemp = process.argv.length >= 12 ? parseHostJson<StreamDock.Argv[4]>(process.argv[11], "action info") : null;
             try {
                 instance.onStart([process.argv[3], process.argv[5], process.argv[7], application, pluginTemp]);
             } catch {}

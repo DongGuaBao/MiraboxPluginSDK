@@ -349,26 +349,108 @@ class QObject {
         });
     }
 }
+/** Craft 通过 `qmlMessage` 信号回传的文件选择结果。 */
+export interface CraftFileSelection {
+    /** 触发本次选择的 action context，用于多按键并发时对号入座。 */
+    context: string;
+    /** Craft 回传的原始 filePath 字符串（通常是 JSON 数组）。 */
+    raw: string;
+    /** 解析后的绝对路径数组；无法解析时退化为 `[raw]`。 */
+    paths: string[];
+}
+
 export class QtWebChannelStore {
     qtObject: any;
     x: any;
     y: any;
     flag: any;
+    /** qtObject 是否已就绪（响应式）。 */
+    ready: any;
+    callbackPromise!: Promise<void>;
+    private fileListeners = new Set<(selection: CraftFileSelection) => void>();
+    private qmlBound = false;
     constructor(transport: any) {
         this.qtObject = ref();
         this.x = ref(0);
         this.y = ref(0);
         this.flag = ref(true);
-        new QWebChannel(transport, (channel: any) => {
-            this.qtObject.value = channel.objects.channelqtObject;
-            this.qtObject.value.sigDidReceiveCoordinate.connect((xx: number, yy: number) => {
-                this.x.value = Math.round(xx);
-                this.y.value = Math.round(yy);
-                this.flag.value = true;
+        this.ready = ref(false);
+        this.callbackPromise = new Promise<void>((resolve, reject) => {
+            new QWebChannel(transport, (channel: any) => {
+                this.qtObject.value = channel.objects.channelqtObject;
+                this.qtObject.value.sigDidReceiveCoordinate?.connect((xx: number, yy: number) => {
+                    this.x.value = Math.round(xx);
+                    this.y.value = Math.round(yy);
+                    this.flag.value = true;
+                });
+                this.bindQmlMessage();
+                this.ready.value = true;
+                resolve();
             });
         });
     }
+    async waitUtilInit(): Promise<void> {
+        return await this.callbackPromise;
+    }
 
+    /** 只绑定一次 qmlMessage，避免重复 connect 导致回调多次触发。 */
+    private bindQmlMessage() {
+        if (this.qmlBound) return;
+        const target = this.qtObject.value;
+        if (!target?.qmlMessage?.connect) return;
+        this.qmlBound = true;
+        target.qmlMessage.connect((context: string, filePath: string) => {
+            let paths: string[];
+            try {
+                const parsed = JSON.parse(filePath);
+                paths = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+            } catch {
+                paths = filePath ? [filePath] : [];
+            }
+            const selection: CraftFileSelection = { context, raw: filePath, paths };
+            for (const listener of this.fileListeners) {
+                try {
+                    listener(selection);
+                } catch {}
+            }
+        });
+    }
+
+    /**
+     * 监听 Craft 文件选择结果。
+     *
+     * @returns 取消监听函数，组件卸载时务必调用。
+     */
+    onFileSelected(listener: (selection: CraftFileSelection) => void): () => void {
+        this.fileListeners.add(listener);
+        this.bindQmlMessage();
+        return () => {
+            this.fileListeners.delete(listener);
+        };
+    }
+
+    /**
+     * 打开 Craft 原生文件选择器。结果通过 {@link onFileSelected} 异步回传。
+     *
+     * @param context - 当前 action 的 context（`window.argv[1]` 或事件里的 context）
+     * @param multiple - 是否允许多选
+     * @param limit - 多选时的最大数量
+     * @returns qtObject 未就绪时返回 false
+     */
+    openFileSelector(context: string, multiple = false, limit = 1): boolean {
+        const target = this.qtObject.value;
+        if (!target?.openFileSelector) return false;
+        target.openFileSelector(context, multiple, limit);
+        return true;
+    }
+
+    /** 请求 Craft 删除一个已选文件（用于相册类插件移除条目）。 */
+    deleteFile(path: string): boolean {
+        const target = this.qtObject.value;
+        if (!target?.deleteFile) return false;
+        target.deleteFile(path);
+        return true;
+    }
     setLocalCoordinate(x: number, y: number) {
         this.x.value = Math.round(x);
         this.y.value = Math.round(y);
@@ -421,10 +503,77 @@ export class QtWebChannelStore {
 /**
  * 仅在 Craft 嵌入式页面提供 Qt transport 时创建适配器。
  * 普通 StreamDock PI、浏览器调试页和 Node 后端会安全返回 null。
+ *
+ * @deprecated 请使用 {@link getCraftQtChannel}。QWebChannel 会独占
+ * `transport.onmessage`，重复构造会让先前的实例静默失效，因此本函数现在
+ * 直接复用同一个单例。
  */
 export function createCraftQtChannel(): QtWebChannelStore | null {
+    return getCraftQtChannel();
+}
+
+/**
+ * 单例必须跨 SDK entry 共享。`property.mjs` 和 `ui/index.mjs` 各自打包，
+ * 各自的模块级 `let singleton = null` 会让两份 bundle 各自构造 QWebChannel，
+ * 第二次构造覆盖 `transport.onmessage` 会让先前的实例静默失效。
+ * 因此通过 `globalThis` 共享同一引用。
+ */
+const SINGLETON_KEY = "__streamDockCraftQtChannel";
+type GlobalWithChannel = typeof globalThis & { [SINGLETON_KEY]?: QtWebChannelStore | null };
+
+function getSingleton(): QtWebChannelStore | null {
+    const g = globalThis as GlobalWithChannel;
+    return g[SINGLETON_KEY] ?? null;
+}
+
+function setSingleton(value: QtWebChannelStore | null): void {
+    (globalThis as GlobalWithChannel)[SINGLETON_KEY] = value;
+}
+
+/** 探测函数，可被外部替换以支持宿主注入的假 transport（测试 / Storybook）。 */
+type TransportProbe = () => any;
+
+let transportProbe: TransportProbe = () => (typeof window === "undefined" ? null : (window as any).qt?.webChannelTransport);
+
+/** 自定义 Qt transport 探测（仅在浏览器环境下生效）。 */
+export function setCraftQtTransportProbe(probe: TransportProbe | null): void {
+    if (probe) {
+        transportProbe = probe;
+    } else {
+        transportProbe = () => (typeof window === "undefined" ? null : (window as any).qt?.webChannelTransport);
+    }
+}
+
+/** 探测当前是否处于 Craft 嵌入式页面且 Qt transport 可用。 */
+export function hasCraftQtChannel(): boolean {
+    if (typeof window === "undefined") return false;
+    return Boolean((window as any).qt?.webChannelTransport?.send);
+}
+
+/** 强制重新创建单例（极少使用，主要用于测试）。 */
+export function resetCraftQtChannel(): void {
+    setSingleton(null);
+}
+
+/**
+ * 获取 Craft QtWebChannel 唯一实例。**首次调用**会自动检测并初始化。
+ *
+ * - 非 Craft 环境（普通 StreamDock、浏览器调试、子窗口无 transport）始终返回 `null`；
+ * - 多次调用、跨 SDK entry 调用都复用同一个实例（通过 globalThis 共享）；
+ * - 构造失败不会抛错；
+ * - 配合 `Property.startProperty()` 之后可安全在 `onMounted`/`willAppear` 任意时机调用。
+ */
+export function getCraftQtChannel(): QtWebChannelStore | null {
     if (typeof window === "undefined") return null;
-    const transport = (window as any).qt?.webChannelTransport;
+    const existing = getSingleton();
+    if (existing) return existing;
+    const transport = transportProbe();
     if (!transport?.send) return null;
-    return new QtWebChannelStore(transport);
+    try {
+        const instance = new QtWebChannelStore(transport);
+        setSingleton(instance);
+        return instance;
+    } catch {
+        return null;
+    }
 }
