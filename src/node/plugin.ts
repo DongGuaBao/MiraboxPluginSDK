@@ -1,8 +1,8 @@
 /**
  * Node 端 Plugin 实现。
  *
- * 使用 `ws` 库创建 WebSocket 连接，支持：
- * - `log` 日志（log4js）
+ * 使用内置轻量 WebSocket 客户端建立连接，支持：
+ * - 零依赖轻量日志
  * - Node inspector 调试（`-dev` 参数）
  * - 从 `process.argv` 读取启动参数
  * - `fs`、`path` 等 Node API
@@ -31,7 +31,7 @@ import "../types";
 import { BasePlugin } from "../core/base-plugin";
 import { Action } from "../core/action";
 import { log } from "./log";
-import WebSocket from "ws";
+import { WebSocketClient } from "./websocket-client";
 import inspector from "inspector";
 import fs from "fs";
 import path from "path";
@@ -65,7 +65,7 @@ function summarizePayload(payload: any) {
 }
 
 export class Plugin extends BasePlugin {
-    declare ws: WebSocket;
+    declare ws: WebSocketClient;
     static devWaitForInspector() {
         if (process.argv.some((ele) => ele == "-dev")) {
             try {
@@ -126,7 +126,7 @@ export class Plugin extends BasePlugin {
     connect() {
         this.language = global.language;
         this.uuid = process.argv[5];
-        this.ws = new WebSocket("ws://127.0.0.1:" + process.argv[3]);
+        this.ws = new WebSocketClient("ws://127.0.0.1:" + process.argv[3]);
 
         this.ws.on("open", () => {
             this.ws.send(JSON.stringify({ uuid: process.argv[5], event: process.argv[7] }));
@@ -138,6 +138,7 @@ export class Plugin extends BasePlugin {
                 process.exit();
             }
         });
+        this.ws.on("error", (error) => log.error("WebSocket error:", error));
         this.ws.on("message", (e) => {
             const data: any = JSON.parse(e.toString());
             if (data.event === "didReceiveGlobalSettings") {

@@ -1,48 +1,53 @@
-/**
- * Node 端日志模块，基于 log4js。
- *
- * 日志输出到：
- * - `./log/YYYY.M.D.log` (文件，最大 5MB，保留 3 个备份)
- * - 控制台 (console)
- *
- * 自动捕获未处理的异常和 Promise rejection。
- *
- * **仅在 Node 端可用**（`@mirabox/streamdock-sdk/node`），
- * Web 端/Property Inspector 不支持此模块。
- *
- * ```ts
- * import { log } from '@mirabox/streamdock-sdk/node';
- * log.info('Plugin started');
- * log.error('Something went wrong', error);
- * ```
- */
-import log4js from "log4js";
+/** Lightweight Node logger with no runtime dependencies. */
+import fs from "node:fs";
+import path from "node:path";
+import util from "node:util";
 
+const maxSize = 5 * 1024 * 1024;
+const backups = 3;
 const now = new Date();
-export const log = log4js
-    .configure({
-        appenders: {
-            file: {
-                type: "file",
-                filename: `./log/${now.getFullYear()}.${now.getMonth() + 1}.${now.getDate()}.log`,
-                maxLogSize: 5 * 1024 * 1024,
-                backups: 3,
-            },
-            console: { type: "console" },
-        },
-        categories: {
-            default: { appenders: ["file", "console"], level: "info" },
-        },
-    })
-    .getLogger();
+const logDirectory = path.resolve(process.cwd(), "log");
+const logFile = path.join(logDirectory, `${now.getFullYear()}.${now.getMonth() + 1}.${now.getDate()}.log`);
 
-process.on("uncaughtException", (error) => {
+function rotate() {
     try {
-        log.error("Uncaught Exception:", error);
+        if (!fs.existsSync(logFile) || fs.statSync(logFile).size < maxSize) return;
+        for (let index = backups; index >= 1; --index) {
+            const source = index === 1 ? logFile : `${logFile}.${index - 1}`;
+            const target = `${logFile}.${index}`;
+            if (!fs.existsSync(source)) continue;
+            if (fs.existsSync(target)) fs.unlinkSync(target);
+            fs.renameSync(source, target);
+        }
     } catch {}
-});
-process.on("unhandledRejection", (reason) => {
+}
+
+function format(value: unknown): string {
+    if (value instanceof Error) return value.stack || value.message;
+    return typeof value === "string" ? value : util.inspect(value, { depth: 5, breakLength: Infinity });
+}
+
+function write(level: string, values: unknown[]) {
+    const line = `${new Date().toISOString()} [${level}] ${values.map(format).join(" ")}\n`;
     try {
-        log.error("Unhandled Rejection:", reason);
+        fs.mkdirSync(logDirectory, { recursive: true });
+        rotate();
+        fs.appendFileSync(logFile, line, "utf8");
     } catch {}
-});
+    const output = level === "ERROR" || level === "FATAL" ? console.error :
+        level === "WARN" ? console.warn : console.log;
+    output(line.trimEnd());
+}
+
+export const log = {
+    // Keep the public methods without unexpectedly increasing file I/O.
+    trace: (..._values: unknown[]) => {},
+    debug: (..._values: unknown[]) => {},
+    info: (...values: unknown[]) => write("INFO", values),
+    warn: (...values: unknown[]) => write("WARN", values),
+    error: (...values: unknown[]) => write("ERROR", values),
+    fatal: (...values: unknown[]) => write("FATAL", values),
+};
+
+process.on("uncaughtException", (error) => log.error("Uncaught Exception:", error));
+process.on("unhandledRejection", (reason) => log.error("Unhandled Rejection:", reason));

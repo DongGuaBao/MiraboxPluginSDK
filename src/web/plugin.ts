@@ -8,7 +8,7 @@
  * | 特性 | Node 端 | Web 端 |
  * |------|---------|--------|
  * | WebSocket | `ws` 库 | 浏览器原生 |
- * | 日志 | log4js (`log`) | 不可用 |
+ * | 日志 | 轻量文件日志 (`log`) | 不可用 |
  * | Node API | fs, path, inspector | 不可用 |
  * | 启动入口 | `process.argv` | `window.argv` |
  * | 语言文件 | 本地 fs 读取 | `fetch('./<lang>.json')` |

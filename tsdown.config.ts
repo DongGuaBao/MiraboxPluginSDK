@@ -21,7 +21,7 @@ export default defineConfig([
         format: ["esm", "cjs"],
         dts: true,
         sourcemap: true,
-        deps: { neverBundle: ["ws", "log4js", "inspector", "fs", "path"] },
+        deps: { neverBundle: ["inspector", "fs", "path", "node:crypto", "node:events", "node:fs", "node:net", "node:path", "node:util"] },
         minify: false,
         target: "es2022",
         outDir: "dist/node",

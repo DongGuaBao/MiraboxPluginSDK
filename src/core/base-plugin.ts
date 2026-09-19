@@ -53,7 +53,7 @@ export abstract class BasePlugin {
     getGlobalSettingsFlag: boolean = true;
     /** 插件 UUID（从启动参数中获取） */
     uuid!: string;
-    /** WebSocket 连接（Node 端为 `ws` WebSocket，Web 端为浏览器 WebSocket） */
+    /** WebSocket 连接（Node 端为轻量客户端，Web 端为浏览器 WebSocket） */
     ws!: { send(data: string): void };
     /** 全局持久化设置，跨所有 Action 共享 */
     globalSettings: JsonObject = {};
