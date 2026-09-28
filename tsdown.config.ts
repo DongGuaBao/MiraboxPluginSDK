@@ -17,6 +17,15 @@ export default defineConfig([
         outDir: "dist",
     },
     {
+        entry: ["src/text-metrics.ts"],
+        format: ["esm", "cjs"],
+        dts: true,
+        sourcemap: false,
+        minify: false,
+        target: "es2020",
+        outDir: "dist/text-metrics",
+    },
+    {
         entry: ["src/node/index.ts"],
         format: ["esm", "cjs"],
         dts: true,

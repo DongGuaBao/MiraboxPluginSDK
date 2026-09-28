@@ -33,6 +33,11 @@
         },
         "./types": {
             "types": "./dist/types.d.mts"
+        },
+        "./text-metrics": {
+            "types": "./dist/text-metrics/text-metrics.d.mts",
+            "import": "./dist/text-metrics/text-metrics.mjs",
+            "require": "./dist/text-metrics/text-metrics.cjs"
         }
     },
     "files": [
@@ -48,6 +53,7 @@
     },
     "scripts": {
         "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+        "generate:font-widths": "node script/generate-font-widths.cjs",
         "build": "npm run typecheck && tsdown",
         "check": "npm run build",
         "test:node-client": "npm run build && node test/node-client-smoke.mjs",
