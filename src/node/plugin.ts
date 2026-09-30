@@ -33,8 +33,13 @@ import { Action } from "../core/action";
 import { log } from "./log";
 import { WebSocketClient } from "./websocket-client";
 import inspector from "inspector";
-import fs from "fs";
-import path from "path";
+import { getNodeI18n, getNodeStartupState, type I18nDictionary } from "./startup";
+import {
+    enableDeviceModelDiscovery,
+    getDeviceModel,
+    initializeDeviceModelDiscovery,
+    type DeviceModelDiscoveryOptions,
+} from "./device-model-discovery";
 
 export { Action, log };
 
@@ -66,6 +71,27 @@ function summarizePayload(payload: any) {
 
 export class Plugin extends BasePlugin {
     declare ws: WebSocketClient;
+    /** Opt in to resolving willAppear.device ids through StreamDockConfig.ini. */
+    static enableDeviceModelDiscovery(options?: DeviceModelDiscoveryOptions): void {
+        enableDeviceModelDiscovery(options);
+    }
+    /** Localization Proxy initialized as soon as the Node SDK is imported. */
+    static getI18n(): I18nDictionary {
+        return getNodeI18n();
+    }
+    /** Compatibility alias for callers using a lowercase `i`. */
+    static geti18n(): I18nDictionary {
+        return this.getI18n();
+    }
+    getI18n(): I18nDictionary {
+        return getNodeI18n();
+    }
+    geti18n(): I18nDictionary {
+        return this.getI18n();
+    }
+    override getDeviceModel(deviceId: string): string | undefined {
+        return this.isStreamDock ? getDeviceModel(deviceId) : undefined;
+    }
     static devWaitForInspector() {
         if (process.argv.some((ele) => ele == "-dev")) {
             try {
@@ -86,23 +112,19 @@ export class Plugin extends BasePlugin {
      */
     static async startPlugin() {
         this.hasInit = true;
-        const application = parseHostJson<StreamDock.ApplicationInfo>(process.argv[9], "application info");
+        const application = getNodeStartupState(true).applicationInfo
+            ?? parseHostJson<StreamDock.ApplicationInfo>(process.argv[9], "application info");
         const instance = this.getInstance();
         instance.setHostInfo(application);
+        instance.language = getNodeStartupState().language;
+        if (instance.isStreamDock) initializeDeviceModelDiscovery();
 
-        if (process.argv.some((ele) => ele == "-dev")) {
-            global.language = application.application.language;
-            global.i18n = JSON.parse(fs.readFileSync(path.join(process.cwd(), `language/${language}.json`)).toString());
-        } else {
+        if (!process.argv.some((ele) => ele == "-dev")) {
             const pluginTemp = process.argv.length >= 12 ? parseHostJson<StreamDock.Argv[4]>(process.argv[11], "action info") : null;
             try {
                 instance.onStart([process.argv[3], process.argv[5], process.argv[7], application, pluginTemp]);
             } catch {}
 
-            try {
-                global.language = application.application.language;
-                global.i18n = JSON.parse(fs.readFileSync(path.join(process.cwd(), `${language}.json`)).toString());
-            } catch {}
         }
 
         log.info("start plugin");

@@ -65,10 +65,10 @@ export const propertyUiCss = `
   padding: 0 7px; border: 1px solid var(--mi-border); border-radius: var(--mi-radius);
   outline: 0; color: var(--mi-text); background: transparent; font: inherit;
 }
-.mi-control:hover { border-color: var(--mi-border-hover); background: rgba(255,255,255,.04); }
+.mi-control:hover { border-color: var(--mi-border-hover); }
 .mi-control:focus { border-color: var(--mi-focus); box-shadow: 0 0 0 1px var(--mi-focus); }
 .mi-control:disabled { color: var(--mi-text-disabled); cursor: not-allowed; opacity: .7; }
-select.mi-control { background-color: transparent; }
+select.mi-control { background-color: var(--mi-popup-bg); }
 select.mi-control option { color: white; background: var(--mi-popup-bg); }
 .mi-number { position: relative; width: 100%; max-width: 100%; }
 .mi-number .mi-control { padding-right: var(--mi-number-suffix-space,7px); }

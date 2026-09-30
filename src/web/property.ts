@@ -54,6 +54,8 @@
  * ```
  */
 import "../types";
+import type { ActionSettings } from "../types";
+export type { ActionSettings } from "../types";
 import { RpcChannel } from "../core/rpc";
 import { detectHostEnvironment, type HostEnvironment } from "../core/environment";
 import { ensureSDSocketPolyfill } from "./polyfill";
@@ -78,11 +80,7 @@ interface SubWindowEntry {
     window: Window | null;
 }
 
-type PropertyChildEvent =
-    | "willAppear"
-    | "didReceiveSettings"
-    | "didReceiveGlobalSettings"
-    | "sendToPropertyInspector";
+type PropertyChildEvent = "willAppear" | "didReceiveSettings" | "didReceiveGlobalSettings" | "sendToPropertyInspector";
 
 interface PropertyInterface {
     /** 运行时配置 */
@@ -120,7 +118,11 @@ interface PropertyInterface {
     /** 当前及历史子窗口状态。 */
     subWindows: SubWindowInfo[];
 }
-type ExtensibleProperty<TSettings extends JsonObject = JsonObject, TGlobalSettings extends JsonObject = JsonObject> = Omit<PropertyInterface, "settings" | "globalSettings"> & {
+type ExtensibleProperty<TSettings extends JsonObject = ActionSettings, TGlobalSettings extends JsonObject = JsonObject> = Omit<PropertyInterface, "settings" | "globalSettings"> & {
+    settings: TSettings;
+    globalSettings: TGlobalSettings;
+} & Record<string, unknown>;
+type ReactiveProperty<TSettings extends JsonObject, TGlobalSettings extends JsonObject> = Reactive<Omit<PropertyInterface, "settings" | "globalSettings">> & {
     settings: TSettings;
     globalSettings: TGlobalSettings;
 } & Record<string, unknown>;
@@ -154,7 +156,7 @@ export class Property {
     private subWindowEntries = new Map<string, SubWindowEntry>();
     private subWindowIdSequence = 0;
     private lastWillAppearEvent?: StreamDockEvents.WillAppear;
-    private static childReactiveProperty?: Reactive<ExtensibleProperty>;
+    private static childReactiveProperty?: Reactive<ExtensibleProperty<JsonObject>>;
     private static childSyncingFromParent = false;
     constructor() {}
 
@@ -235,10 +237,10 @@ export class Property {
     static getI18n(): any {
         return window.i18n;
     }
-    static getReactiveInstance<TSettings extends JsonObject = JsonObject, TGlobalSettings extends JsonObject = JsonObject>(): Reactive<ExtensibleProperty<TSettings, TGlobalSettings>> {
+    static getReactiveInstance<TSettings extends JsonObject = ActionSettings, TGlobalSettings extends JsonObject = JsonObject>(): ReactiveProperty<TSettings, TGlobalSettings> {
         if (window.opener != null) {
             if (this.childReactiveProperty) {
-                return this.childReactiveProperty as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
+                return this.childReactiveProperty as unknown as ReactiveProperty<TSettings, TGlobalSettings>;
             }
 
             const parentReactive = window.opener.PropertyClass.getReactiveInstance() as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
@@ -256,7 +258,7 @@ export class Property {
             };
             let childWillAppear = defaultChildHandlers.willAppear;
             let childMountScheduled = false;
-            const localSource: ExtensibleProperty = {
+            const localSource: ExtensibleProperty<JsonObject> = {
                 ...parentReactive,
                 settings: clone(parentReactive.settings ?? {}),
                 globalSettings: clone(parentReactive.globalSettings ?? {}),
@@ -277,13 +279,12 @@ export class Property {
                     // setter 在业务子组件 setup() 期间执行，所以此处的
                     // onMounted 绑定的是真正的异步子组件，而不是外层壳。
                     onMounted(() => {
-                        const appearance = window.opener?.PropertyClass.getInstance()
-                            .attachSubWindowProperty(currentSubWindowId, window);
+                        const appearance = window.opener?.PropertyClass.getInstance().attachSubWindowProperty(currentSubWindowId, window);
                         if (appearance) handler(appearance);
                     });
                 },
             });
-            const local = reactive(localSource) as Reactive<ExtensibleProperty>;
+            const local = reactive(localSource) as Reactive<ExtensibleProperty<JsonObject>>;
             this.childReactiveProperty = local;
 
             window.__streamDockSyncProperty = (state) => {
@@ -305,7 +306,7 @@ export class Property {
             };
 
             watch(
-                () => local.settings,
+                (): JsonObject => local.settings,
                 (value) => {
                     if (this.childSyncingFromParent || !window.opener) return;
                     window.opener.PropertyClass.getInstance().updateSettingsFromSubWindow(clone(value));
@@ -320,7 +321,7 @@ export class Property {
                 },
                 { deep: true, flush: "sync" },
             );
-            return local as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
+            return local as unknown as ReactiveProperty<TSettings, TGlobalSettings>;
         }
         const property = this.getInstance();
         if (!property.reactiveProperty) {
@@ -354,7 +355,7 @@ export class Property {
                 subWindows: [],
             });
         }
-        return property.reactiveProperty as unknown as Reactive<ExtensibleProperty<TSettings, TGlobalSettings>>;
+        return property.reactiveProperty as unknown as ReactiveProperty<TSettings, TGlobalSettings>;
     }
     /**
      * 建立 WebSocket 连接并注册 Property Inspector 到 Stream Dock。

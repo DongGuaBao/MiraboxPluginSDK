@@ -36,11 +36,23 @@ import "../types";
 import { BasePlugin } from "../core/base-plugin";
 import { Action } from "../core/action";
 import { ensureSDSocketPolyfill } from "./polyfill";
+import {
+    enableWebDeviceModelDiscovery,
+    getWebDeviceModel,
+    initializeWebDeviceModelDiscovery,
+    type WebDeviceModelDiscoveryOptions,
+} from "./device-model-discovery";
 
 export { Action };
 
 export class Plugin extends BasePlugin {
     declare ws: WebSocket;
+    static enableDeviceModelDiscovery(options?: WebDeviceModelDiscoveryOptions): void {
+        enableWebDeviceModelDiscovery(options);
+    }
+    override getDeviceModel(deviceId: string): string | undefined {
+        return this.isStreamDock ? getWebDeviceModel(deviceId) : undefined;
+    }
 
     /**
      * 初始化插件：加载语言文件、注入 polyfill、延迟启动。
@@ -55,6 +67,7 @@ export class Plugin extends BasePlugin {
         window.startPlugin = async function () {
             const instance = Self.getInstance();
             instance.setHostInfo(window.argv[3]);
+            if (instance.isStreamDock) await initializeWebDeviceModelDiscovery();
             try {
                 instance.onStart([window.argv[0], window.argv[1], window.argv[2], window.argv[3], window.argv.length >= 5 ? window.argv[4] : null]);
             } catch {}

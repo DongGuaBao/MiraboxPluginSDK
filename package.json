@@ -55,8 +55,6 @@
         "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
         "generate:font-widths": "node script/generate-font-widths.cjs",
         "build": "npm run typecheck && tsdown",
-        "check": "npm run build",
-        "test:node-client": "npm run build && node test/node-client-smoke.mjs",
         "prepublishOnly": "npm run build",
         "prepare": "npm run build"
     }

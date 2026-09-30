@@ -1,7 +1,11 @@
 import "../types";
+import type { ActionSettings } from "../types";
 import { BasePlugin } from "./base-plugin";
 import { pluginState } from "./state";
 import { RpcChannel } from "./rpc";
+import { getKeypadCoordinates, type KeypadCoordinates } from "./keypad";
+
+export type ActionType = "touchBar" | "Card" | "Knob" | "Keypad";
 
 /**
  * Action 操作基类 — 每个实例代表画布上一个按键。
@@ -28,12 +32,17 @@ export class Action {
 
     private _rpc = new RpcChannel((payload) => this.sendToPropertyInspector(payload));
 
+    actionType: ActionType = "Keypad";
+
     /** 操作实例的唯一标识符（由 Stream Dock 在 willAppear 时分配） */
     context!: string;
     /** 设备标识符 */
     device!: string;
+    /** 探查到的 StreamDock 设备型号；未开启或未匹配时为 undefined。 */
+    deviceModel?: string;
+    coordinates?: KeypadCoordinates;
     /** 当前持久化设置（willAppear 或 didReceiveSettings 时更新） */
-    settings: JsonObject = {};
+    settings: ActionSettings = {};
 
     /**
      * [内部] Property Inspector 出现时的预处理。
@@ -63,11 +72,17 @@ export class Action {
      */
     _willAppear(data: StreamDockEvents.WillAppear): void {
         this.settings = (data.payload as any)?.settings;
+        const controller = data.payload.controller?.toLowerCase();
+        const coordinates = data.payload.coordinates;
+        this.actionType = controller === "keypad" && coordinates?.column === -1 && coordinates.row === -1 ? "touchBar" : controller === "card" ? "Card" : controller === "knob" ? "Knob" : "Keypad";
         if (data.context) {
             this.context = data.context;
             BasePlugin.instance.actionList.set(data.context, this);
         }
         this.device = data.device || "";
+        this.deviceModel = BasePlugin.instance.getDeviceModel(this.device);
+        data.deviceModel = this.deviceModel;
+        this.coordinates = this.actionType === "Keypad" && controller !== "secondaryscreen" && coordinates ? getKeypadCoordinates(this.deviceModel, coordinates.column, coordinates.row) : undefined;
         this.willAppear?.(data);
     }
 
@@ -198,6 +213,8 @@ export class Action {
 
     /** 用户按下按键时触发 */
     keyDown?(data: StreamDockEvents.KeyDown): void;
+
+    touchTap?(data: StreamDockEvents.TouchTap): void;
 
     /** 用户旋转旋钮时触发（正值 = 顺时针，负值 = 逆时针） */
     dialRotate?(data: StreamDockEvents.DialRotate): void;

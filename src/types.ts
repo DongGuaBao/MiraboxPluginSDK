@@ -15,7 +15,7 @@ declare global {
     // ============ 基础 JSON 类型 ============
 
     /** JSON 兼容的值类型：字符串、数字、布尔、null、嵌套对象或数组 */
-    type JsonValue = string | number | boolean | JsonObject | JsonValue[];
+    type JsonValue = string | number | boolean | JsonObject | JsonValue[] | null | undefined;
 
     /** JSON 兼容的对象类型，键为字符串，值为 {@link JsonValue} */
     type JsonObject = {
@@ -69,7 +69,7 @@ declare global {
     };
 
     /** 国际化翻译函数，根据 key 返回对应语言的文本 */
-    var i18n: any;
+    var i18n: { [k: string]: string };
 
     /** 国际化翻译字典，key 为原文，value 为翻译后文本 */
     var _i18n: { [k: string]: string };
@@ -115,10 +115,7 @@ declare global {
         /** SDK 内部：父 Property Inspector 向子窗口同步响应式状态。 */
         __streamDockSyncProperty?: (state: { settings: JsonObject; globalSettings: JsonObject; environment: unknown; isCraft: boolean; isStreamDock: boolean }) => void;
         /** SDK 内部：父 Property Inspector 向子窗口自己的 Property 副本分发生命周期和插件消息。 */
-        __streamDockDispatchPropertyEvent?: (
-            event: "willAppear" | "didReceiveSettings" | "didReceiveGlobalSettings" | "sendToPropertyInspector",
-            data: any,
-        ) => void;
+        __streamDockDispatchPropertyEvent?: (event: "willAppear" | "didReceiveSettings" | "didReceiveGlobalSettings" | "sendToPropertyInspector", data: any) => void;
         /**
          * Stream Dock / Elgato 通用入口函数。
          * 对于 Property Inspector：接收 5 个参数（最后一个是 inActionInfo）。
@@ -263,7 +260,7 @@ declare global {
         };
 
         /** Action 事件的通用 payload 字段 */
-        type BasePayload<TSettings = JsonObject> = {
+        type BasePayload<TSettings = ActionSettings> = {
             settings: TSettings;
             coordinates: Coordinates;
             isInMultiAction: boolean;
@@ -290,22 +287,22 @@ declare global {
         >;
 
         /** 用户按下按键时触发 */
-        type KeyDown = EventActionWithPayload<
-            "keyDown",
-            {
-                settings: JsonObject;
-                coordinates: Coordinates;
-                state: number;
-                userDesiredState: number;
-                isInMultiAction: boolean;
-            }
-        >;
+        type InputPayload = BasePayload & {
+            state: number;
+            userDesiredState: number;
+            controller?: string;
+            tapPos?: [number, number];
+            hold?: boolean;
+            resources?: Record<string, string>;
+        };
+
+        type KeyDown = EventActionWithPayload<"keyDown", InputPayload>;
 
         /** 用户释放按键时触发 */
-        type KeyUp = KeyDown;
+        type KeyUp = EventActionWithPayload<"keyUp", InputPayload>;
 
-        /** 触摸点击事件（结构同 KeyDown） */
-        type TouchTap = KeyDown;
+        /** 卡片或触摸屏点击；附加字段由宿主按需提供。 */
+        type TouchTap = EventActionWithPayload<"touchTap", InputPayload>;
 
         /**
          * 按键实例即将出现在 Stream Dock 上时触发。
@@ -324,7 +321,10 @@ declare global {
                 state: number;
                 isInMultiAction: boolean;
             }
-        >;
+        > & {
+            /** Node SDK 开启设备型号探查后注入；无法识别时为 undefined。 */
+            deviceModel?: string;
+        };
 
         /** 按键实例即将从 Stream Dock 上消失时触发 */
         type WillDisappear = WillAppear;
@@ -543,4 +543,9 @@ declare global {
     }
 }
 
-export {};
+/** 宿主协议设置；插件业务设置可与此类型组合。 */
+export type ActionSettings = JsonObject & {
+    touchbarWidth?: number;
+    touchbarHeight?: number;
+    ActionGeometry?: { width: number; height: number };
+};

@@ -1,0 +1,32 @@
+2026-09-30T06:19:56.380Z [ERROR] Uncaught Exception: TypeError: Cannot read properties of undefined (reading 'startsWith')
+    at optionValue (file:///D:/Work/Templates2/sdk/dist/node/index.mjs:1063:15)
+    at parseNodeApplicationInfo (file:///D:/Work/Templates2/sdk/dist/node/index.mjs:1068:19)
+    at getNodeStartupState (file:///D:/Work/Templates2/sdk/dist/node/index.mjs:1101:27)
+    at TestPlugin.startPlugin (file:///D:/Work/Templates2/sdk/dist/node/index.mjs:1312:23)
+    at file:///D:/Work/Templates2/sdk/test/Keypad-smoke.mjs:86:22
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:666:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+2026-09-30T06:21:29.285Z [INFO] start plugin
+2026-09-30T06:21:29.292Z [INFO] start plugin
+2026-09-30T06:21:29.300Z [ERROR] Uncaught Exception: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
++ undefined
+- {
+-   x: 4,
+-   y: 1
+- }
+
+    at exercise (file:///D:/Work/Templates2/sdk/test/Keypad-smoke.mjs:68:16)
+    at file:///D:/Work/Templates2/sdk/test/Keypad-smoke.mjs:96:5
+2026-09-30T06:22:04.729Z [INFO] start plugin
+2026-09-30T06:22:04.733Z [INFO] start plugin
+2026-09-30T06:23:27.049Z [INFO] start plugin
+2026-09-30T06:23:27.052Z [INFO] start plugin
+2026-09-30T07:07:33.613Z [INFO] start plugin
+2026-09-30T07:07:33.618Z [INFO] start plugin
+2026-09-30T07:36:45.844Z [INFO] start plugin
+2026-09-30T07:36:45.847Z [INFO] start plugin
+2026-09-30T07:44:36.295Z [INFO] start plugin
+2026-09-30T07:44:36.302Z [INFO] start plugin

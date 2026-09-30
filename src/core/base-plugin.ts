@@ -67,6 +67,10 @@ export abstract class BasePlugin {
     get isStreamDock(): boolean {
         return this.environment.isStreamDock;
     }
+    /** Resolve a host device id to its hardware model when Node discovery is enabled. */
+    getDeviceModel(_deviceId: string): string | undefined {
+        return undefined;
+    }
     /** 由 Node/Web 启动器注入解析后的宿主信息。 */
     setHostInfo(info: StreamDock.ApplicationInfo): void {
         this.environment = detectHostEnvironment(info);
