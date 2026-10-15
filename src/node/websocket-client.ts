@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import net from "node:net";
+import { SendBuffer } from "../core/send-buffer";
 
 const websocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const maxPayload = 64 * 1024 * 1024;
@@ -13,6 +14,7 @@ export class WebSocketClient extends EventEmitter {
     private readonly key = randomBytes(16).toString("base64");
     private fragmentOpcode = 0;
     private fragments: Buffer[] = [];
+    private sender: SendBuffer;
 
     constructor(address: string) {
         super();
@@ -20,12 +22,24 @@ export class WebSocketClient extends EventEmitter {
         if (url.protocol !== "ws:") throw new Error("Only ws:// WebSocket URLs are supported");
         const port = Number(url.port || 80);
         this.socket = net.createConnection({ host: url.hostname, port });
+        this.sender = new SendBuffer({
+            bufferedBytes: () => this.socket.writableLength,
+            canWrite: () => !this.socket.writableNeedDrain,
+            write: data => { this.socket.write(data as string | Uint8Array); },
+            abort: error => this.socket.destroy(error),
+        });
+        this.socket.on("drain", () => {
+            try { this.sender.flush(); } catch { /* sender already destroyed the socket */ }
+        });
         this.socket.setNoDelay(true);
         this.socket.once("connect", () => {
             const target = `${url.pathname || "/"}${url.search}`;
             this.socket.write(`GET ${target} HTTP/1.1\r\nHost: ${url.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${this.key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
         });
-        this.socket.on("data", (chunk) => this.receive(typeof chunk === "string" ? Buffer.from(chunk) : chunk));
+        this.socket.on("data", (chunk) => {
+            try { this.receive(typeof chunk === "string" ? Buffer.from(chunk) : chunk); }
+            catch (error) { this.socket.destroy(error instanceof Error ? error : new Error(String(error))); }
+        });
         this.socket.on("error", (error) => {
             if (this.listenerCount("error")) this.emit("error", error);
             this.finishClose();
@@ -36,6 +50,13 @@ export class WebSocketClient extends EventEmitter {
     send(data: string | Buffer) {
         if (!this.handshakeComplete || this.closed) throw new Error("WebSocket is not open");
         this.writeFrame(Buffer.isBuffer(data) ? data : Buffer.from(data), Buffer.isBuffer(data) ? 2 : 1);
+    }
+
+    get bufferedAmount(): number { return this.sender.bufferedAmount; }
+
+    sendImage(data: string, context: string): void {
+        if (!this.handshakeComplete || this.closed) throw new Error("WebSocket is not open");
+        this.writeFrame(Buffer.from(data), 1, context);
     }
 
     close(code = 1000, reason = "") {
@@ -131,7 +152,8 @@ export class WebSocketClient extends EventEmitter {
         this.fail("Unsupported WebSocket frame");
     }
 
-    private writeFrame(payload: Buffer, opcode: number) {
+    private writeFrame(payload: Buffer, opcode: number, key?: string) {
+        if (payload.length + 14 > SendBuffer.MAX_BYTES) throw new Error("WebSocket message exceeds 16 MiB send limit");
         const extended = payload.length < 126 ? 0 : payload.length <= 0xffff ? 2 : 8;
         const header = Buffer.allocUnsafe(2 + extended + 4);
         header[0] = 0x80 | opcode;
@@ -143,13 +165,14 @@ export class WebSocketClient extends EventEmitter {
         mask.copy(header, maskOffset);
         const encoded = Buffer.allocUnsafe(payload.length);
         for (let index = 0; index < payload.length; ++index) encoded[index] = payload[index] ^ mask[index & 3];
-        this.socket.write(Buffer.concat([header, encoded]));
+        this.sender.send(Buffer.concat([header, encoded]), key);
     }
 
     private fail(message: string) { this.socket.destroy(new Error(message)); }
     private finishClose() {
         if (this.closed) return;
         this.closed = true;
+        this.sender.dispose();
         this.emit("close");
     }
 }

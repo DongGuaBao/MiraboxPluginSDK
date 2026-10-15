@@ -53,6 +53,9 @@
     },
     "scripts": {
         "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+        "test:send-buffer": "node test/send-buffer.mjs",
+        "test:log-safety": "node test/log-safety.mjs",
+        "check": "npm run build && npm run test:send-buffer && npm run test:log-safety",
         "generate:font-widths": "node script/generate-font-widths.cjs",
         "build": "npm run typecheck && tsdown",
         "prepublishOnly": "npm run build",

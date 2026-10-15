@@ -33,6 +33,7 @@
  * 不能从 `@mirabox/streamdock-sdk/node` 导入 `log`。
  */
 import "../types";
+import { protectWebSocket } from "./send-buffer";
 import { BasePlugin } from "../core/base-plugin";
 import { Action } from "../core/action";
 import { ensureSDSocketPolyfill } from "./polyfill";
@@ -124,7 +125,7 @@ export class Plugin extends BasePlugin {
     connect() {
         this.language = window.argv[3].application.language;
         this.uuid = window.argv[1];
-        this.ws = new WebSocket("ws://127.0.0.1:" + window.argv[0]);
+        this.ws = protectWebSocket(new WebSocket("ws://127.0.0.1:" + window.argv[0]));
         this.ws.onopen = () => this.ws.send(JSON.stringify({ event: window.argv[2], uuid: window.argv[1] }));
         this.ws.onclose = () => this.onExit();
         this.ws.onerror = () => this.onExit();

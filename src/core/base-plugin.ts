@@ -54,7 +54,7 @@ export abstract class BasePlugin {
     /** 插件 UUID（从启动参数中获取） */
     uuid!: string;
     /** WebSocket 连接（Node 端为轻量客户端，Web 端为浏览器 WebSocket） */
-    ws!: { send(data: string): void };
+    ws!: { send(data: string): void; sendImage?(data: string, context: string): void };
     /** 全局持久化设置，跨所有 Action 共享 */
     globalSettings: JsonObject = {};
     /** 当前语言代码，如 "zh_CN"、"en" */
@@ -175,7 +175,8 @@ export abstract class BasePlugin {
      * - 发送 `setImage` 命令到 Stream Dock
      */
     setImage(context: string, url: string): void {
-        this.ws.send(
+        const send = this.ws.sendImage ? (data: string) => this.ws.sendImage!(data, context) : (data: string) => this.ws.send(data);
+        send(
             JSON.stringify({
                 event: "setImage",
                 context,

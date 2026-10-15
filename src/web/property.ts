@@ -54,6 +54,7 @@
  * ```
  */
 import "../types";
+import { protectWebSocket } from "./send-buffer";
 import type { ActionSettings } from "../types";
 export type { ActionSettings } from "../types";
 import { RpcChannel } from "../core/rpc";
@@ -365,7 +366,7 @@ export class Property {
      * - `watch(settings, ..., { deep: true })` — 自动持久化变更
      */
     connect() {
-        this.ws = new WebSocket("ws://127.0.0.1:" + window.argv[0]);
+        this.ws = protectWebSocket(new WebSocket("ws://127.0.0.1:" + window.argv[0]));
         this.ws.onopen = () => this.ws.send(JSON.stringify({ event: window.argv[2], uuid: window.argv[1] }));
         this.ws.onmessage = this.onmessage.bind(this);
         this.regEvent = window.argv[2];
